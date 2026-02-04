@@ -2,82 +2,89 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
-def crawl_naver_news_robust(base_keywords, include_words=None, exclude_words=None, pages=1):
-    if isinstance(base_keywords, str): base_keywords = [base_keywords]
-    
-    # 깃허브 액션 서버임을 숨기기 위한 더 강력한 헤더
+def parse_naver_time(time_str):
+    """네이버의 'n시간 전', '1일 전' 등 텍스트를 datetime 객체로 변환"""
+    now = datetime.now()
+    try:
+        if '분 전' in time_str:
+            minutes = int(time_str.replace('분 전', '').strip())
+            return now - timedelta(minutes=minutes)
+        elif '시간 전' in time_str:
+            hours = int(time_str.replace('시간 전', '').strip())
+            return now - timedelta(hours=hours)
+        elif '일 전' in time_str:
+            days = int(time_str.replace('일 전', '').strip())
+            return now - timedelta(days=days)
+        elif '.' in time_str: # 예: 2026.02.04.
+            return datetime.strptime(time_str.strip('. '), '%Y.%m.%d')
+        return now # 매칭되지 않으면 현재 시간으로 반환
+    except:
+        return now
+
+def crawl_naver_news_robust(keywords, pages=3):
+    base_url = "https://m.search.naver.com/search.naver"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': 'https://www.naver.com/'
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+        'Accept-Language': 'ko-kr',
+        'Referer': 'https://m.naver.com/'
     }
 
-    query_parts = [f"({' | '.join(base_keywords)})"]
-    if include_words: query_parts.append(" ".join([f"+{word}" for word in include_words]))
-    if exclude_words: query_parts.append(" ".join([f"-{word}" for word in exclude_words]))
-    query = " ".join(query_parts)
-
     results = []
-    print(f"🔎 검색어: [{query}]")
+    query = " ".join(keywords)
+    
+    # --- 필터 기준 설정 (현재로부터 36시간 전) ---
+    limit_time = datetime.now() - timedelta(hours=36)
+    print(f"🔎 검색 시작: {query}")
+    print(f"⏰ 필터 기준: {limit_time.strftime('%Y-%m-%d %H:%M')} 이후 기사만 수집")
 
     for page in range(pages):
-        start_val = (page * 10) + 1
+        start = (page * 15) + 1
         params = {
-            'where': 'news',
+            'where': 'm_news',
             'query': query,
-            'sm': 'tab_opt',
-            'sort': 1,
-            'pd': 2,
-            'nso': 'so:dd,p:2d,a:all',
-            'start': start_val
+            'sm': 'mtb_opt',
+            'sort': '1', # 최신순
+            'nso': 'so:dd,p:2d', # 네이버 옵션은 2일로 넉넉하게 설정
+            'start': start
         }
 
         try:
-            response = requests.get("https://search.naver.com/search.naver", headers=headers, params=params, timeout=10)
-            
-            # [디버그 1] 응답 코드 확인
-            if response.status_code != 200:
-                print(f"❌ 네이버 응답 에러 (Status Code: {response.status_code})")
-                continue
+            response = requests.get(base_url, headers=headers, params=params, timeout=15)
+            if response.status_code != 200: continue
 
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # [디버그 2] 기사 제목 태그 직접 찾기 (선택자 단순화)
-            # 네이버 뉴스 제목은 보통 'news_tit' 클래스를 가집니다.
-            all_links = soup.find_all("a", class_="news_tit")
-            
-            if not all_links:
-                # 클래스로 못 찾을 경우를 대비한 백업 (기존 방식)
-                main_pack = soup.select_one("#main_pack")
-                all_links = main_pack.find_all("a") if main_pack else []
-
-            print(f"📡 {page+1}페이지에서 발견된 전체 링크 수: {len(all_links)}")
+            news_items = soup.select("div.news_wrap") or soup.select("li.bx")
 
             found_in_page = 0
-            for link in all_links:
-                text = link.get_text().strip()
-                href = link.get('href')
+            for item in news_items:
+                title_tag = item.select_one("a.news_tit") or item.select_one("div.api_txt_lines.tit")
+                time_tag = item.select_one("span.sub_txt") # 시간 정보가 담긴 태그
+                
+                if not title_tag: continue
+                
+                text = title_tag.get_text().strip()
+                href = title_tag.get('href') if title_tag.has_attr('href') else title_tag.parent.get('href')
+                raw_time = time_tag.get_text().strip() if time_tag else "알 수 없음"
 
-                # 필터링 조건
+                # 1. 시간 필터링 (36시간 이내 여부)
+                article_time = parse_naver_time(raw_time)
+                if article_time < limit_time:
+                    # 36시간보다 오래된 기사라면 건너뜁니다.
+                    continue
+
+                # 2. 제목 길이 필터 (10~100자)
                 if 10 < len(text) < 100 and href and href.startswith("http"):
-                    # 제외 키워드 검사
-                    if exclude_words and any(bad in text for bad in exclude_words): continue
-                    
-                    # 키워드 포함 검사
-                    if not any(k in text for k in base_keywords): continue
-                    
-                    # 중복 검사
                     if any(r['url'] == href for r in results): continue
-
-                    results.append({'title': text, 'url': href})
+                    
+                    results.append({'title': text, 'url': href, 'time': raw_time})
                     found_in_page += 1
 
-            print(f"✅ {page+1}페이지 필터링 통과 기사: {found_in_page}건")
-            if len(all_links) == 0: break
-            time.sleep(1)
+            print(f"📄 {page+1}페이지: {found_in_page}건 수집 완료")
+            if found_in_page == 0 and page > 0: break # 더 이상 최신 기사가 없으면 종료
+            
+            time.sleep(1.0)
 
         except Exception as e:
             print(f"⚠️ 에러 발생: {e}")
@@ -86,46 +93,45 @@ def crawl_naver_news_robust(base_keywords, include_words=None, exclude_words=Non
     return results
 
 def format_news_report(news_data):
-    sector_invest = []
-    sector_industry = []
+    sector_invest = []   # <투자손익/금융시장>
+    sector_industry = [] # <생보3사/보험업계>
 
     for item in news_data:
         title = item['title']
-        if any(word in title for word in ['손익', '자산', '투자', '재무']):
+        if '손익' in title or '자산' in title:
             if len(sector_invest) < 5: sector_invest.append(item)
         else:
             if len(sector_industry) < 5: sector_industry.append(item)
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    report = f"■News feed: {today}\n\n"
     
-    report += "<생보3사/보험업계>\n\n"
-    if not sector_industry: report += "(기사 없음)\n\n"
-    for item in sector_industry: report += f"{item['title']}\n{item['url']}\n\n"
+    today = datetime.now().strftime("%Y-%m-%d")
+    report = f"■News feed: {today}\n"
+    
+    report += "\n<생보3사/보험업계>\n\n"
+    if not sector_industry: report += "(36시간 이내 관련 기사 없음)\n\n"
+    for item in sector_industry:
+        report += f"{item['title']}\n{item['url']}\n\n"
         
     report += "<투자손익/금융시장>\n\n"
-    if not sector_invest: report += "(기사 없음)\n\n"
-    for item in sector_invest: report += f"{item['title']}\n{item['url']}\n\n"
+    if not sector_invest: report += "(36시간 이내 관련 기사 없음)\n\n"
+    for item in sector_invest:
+        report += f"{item['title']}\n{item['url']}\n\n"
         
     return report
 
-def send_telegram_msg(message):
+def send_telegram(message):
     token = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     if not token or not chat_id: return
     try:
+        # 메시지가 너무 길면 텔레그램에서 거부할 수 있으므로 4000자로 자름
         requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={'chat_id': chat_id, 'text': message})
+                      data={'chat_id': chat_id, 'text': message[:4000], 'disable_web_page_preview': True})
     except: pass
 
 if __name__ == "__main__":
-    KEYWORDS = ["한화생명", "삼성생명", "교보생명", "생보사", "보험사"]
-    EXCLUDES = ["보험금","배타적"]
-    #EXCLUDES = ["배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원"]
+    KEYWORDS = ["삼성생명", "한화생명", "교보생명", "보험사"]
+    news_list = crawl_naver_news_robust(KEYWORDS, pages=3)
+    final_msg = format_news_report(news_list)
     
-    news_list = crawl_naver_news_robust(KEYWORDS, exclude_words=EXCLUDES, pages=5)
-    print(f"📊 최종 수집된 기사 총합: {len(news_list)}건")
-    
-    report_text = format_news_report(news_list)
-    print(report_text)
-    send_telegram_msg(report_text)
+    print(final_msg)
+    send_telegram(final_msg)

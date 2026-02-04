@@ -2,42 +2,24 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
-from datetime import datetime, timedelta
-
-def parse_naver_time(time_str):
-    """네이버의 'n시간 전', '1일 전' 등 텍스트를 datetime 객체로 변환"""
-    now = datetime.now()
-    try:
-        if '분 전' in time_str:
-            minutes = int(time_str.replace('분 전', '').strip())
-            return now - timedelta(minutes=minutes)
-        elif '시간 전' in time_str:
-            hours = int(time_str.replace('시간 전', '').strip())
-            return now - timedelta(hours=hours)
-        elif '일 전' in time_str:
-            days = int(time_str.replace('일 전', '').strip())
-            return now - timedelta(days=days)
-        elif '.' in time_str: # 예: 2026.02.04.
-            return datetime.strptime(time_str.strip('. '), '%Y.%m.%d')
-        return now # 매칭되지 않으면 현재 시간으로 반환
-    except:
-        return now
+from datetime import datetime
 
 def crawl_naver_news_robust(keywords, pages=3):
+    # 깃허브 IP 차단을 피하기 위해 모바일 주소를 사용합니다.
     base_url = "https://m.search.naver.com/search.naver"
+    
+    # 더 실제 브라우저 같은 헤더 설정
     headers = {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'ko-kr',
         'Referer': 'https://m.naver.com/'
     }
 
     results = []
+    # 검색어를 하나로 합쳐서 간단하게 만듭니다.
     query = " ".join(keywords)
-    
-    # --- 필터 기준 설정 (현재로부터 36시간 전) ---
-    limit_time = datetime.now() - timedelta(hours=36)
-    print(f"🔎 검색 시작: {query}")
-    print(f"⏰ 필터 기준: {limit_time.strftime('%Y-%m-%d %H:%M')} 이후 기사만 수집")
+    print(f"🔎 모바일 네이버 뉴스 검색 시작: {query}")
 
     for page in range(pages):
         start = (page * 15) + 1
@@ -46,45 +28,50 @@ def crawl_naver_news_robust(keywords, pages=3):
             'query': query,
             'sm': 'mtb_opt',
             'sort': '1', # 최신순
-            'nso': 'so:dd,p:2d', # 네이버 옵션은 2일로 넉넉하게 설정
-            'start': start
+            'nso': 'so:dd,p:2d' # 최근 2일
         }
 
         try:
             response = requests.get(base_url, headers=headers, params=params, timeout=15)
-            if response.status_code != 200: continue
+            
+            # [디버깅] 만약 차단당했다면 로그에 기록됨
+            if response.status_code != 200:
+                print(f"❌ 접속 실패 (상태코드: {response.status_code})")
+                continue
 
             soup = BeautifulSoup(response.text, 'html.parser')
-            news_items = soup.select("div.news_wrap") or soup.select("li.bx")
+            
+            # 모바일 네이버 뉴스 제목 태그 추출
+            # 모바일은 api_txt_lines tit 또는 news_tit 클래스를 주로 사용합니다.
+            news_items = soup.select("div.news_wrap")
+            if not news_items:
+                # 다른 구조일 경우 대비
+                news_items = soup.select("li.bx")
 
             found_in_page = 0
             for item in news_items:
                 title_tag = item.select_one("a.news_tit") or item.select_one("div.api_txt_lines.tit")
-                time_tag = item.select_one("span.sub_txt") # 시간 정보가 담긴 태그
-                
                 if not title_tag: continue
                 
                 text = title_tag.get_text().strip()
                 href = title_tag.get('href') if title_tag.has_attr('href') else title_tag.parent.get('href')
-                raw_time = time_tag.get_text().strip() if time_tag else "알 수 없음"
 
-                # 1. 시간 필터링 (36시간 이내 여부)
-                article_time = parse_naver_time(raw_time)
-                if article_time < limit_time:
-                    # 36시간보다 오래된 기사라면 건너뜁니다.
-                    continue
-
-                # 2. 제목 길이 필터 (10~100자)
+                # 필터링: 제목 길이 10~100자 (사용자 요청)
                 if 10 < len(text) < 100 and href and href.startswith("http"):
+                    # 중복 확인
                     if any(r['url'] == href for r in results): continue
                     
-                    results.append({'title': text, 'url': href, 'time': raw_time})
+                    results.append({'title': text, 'url': href})
                     found_in_page += 1
 
-            print(f"📄 {page+1}페이지: {found_in_page}건 수집 완료")
-            if found_in_page == 0 and page > 0: break # 더 이상 최신 기사가 없으면 종료
+            print(f"📄 {page+1}페이지: {found_in_page}건 발견")
+            if found_in_page == 0:
+                # 기사가 전혀 없다면 구조가 바뀌었거나 차단된 것이므로 로그 출력
+                if "로봇" in response.text or "CAPTCHA" in response.text:
+                    print("🚨 네이버가 자동 수집을 감지하여 차단했습니다.")
+                break
             
-            time.sleep(1.0)
+            time.sleep(1.5) # 차단 방지를 위해 조금 더 천천히
 
         except Exception as e:
             print(f"⚠️ 에러 발생: {e}")
@@ -98,6 +85,7 @@ def format_news_report(news_data):
 
     for item in news_data:
         title = item['title']
+        # '손익' 또는 '자산' 포함 여부로 섹터 분류
         if '손익' in title or '자산' in title:
             if len(sector_invest) < 5: sector_invest.append(item)
         else:
@@ -107,12 +95,12 @@ def format_news_report(news_data):
     report = f"■News feed: {today}\n"
     
     report += "\n<생보3사/보험업계>\n\n"
-    if not sector_industry: report += "(36시간 이내 관련 기사 없음)\n\n"
+    if not sector_industry: report += "(기사 없음)\n\n"
     for item in sector_industry:
         report += f"{item['title']}\n{item['url']}\n\n"
         
     report += "<투자손익/금융시장>\n\n"
-    if not sector_invest: report += "(36시간 이내 관련 기사 없음)\n\n"
+    if not sector_invest: report += "(기사 없음)\n\n"
     for item in sector_invest:
         report += f"{item['title']}\n{item['url']}\n\n"
         
@@ -123,15 +111,20 @@ def send_telegram(message):
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     if not token or not chat_id: return
     try:
-        # 메시지가 너무 길면 텔레그램에서 거부할 수 있으므로 4000자로 자름
         requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={'chat_id': chat_id, 'text': message[:4000], 'disable_web_page_preview': True})
+                      data={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True})
     except: pass
 
 if __name__ == "__main__":
+    # 검색 키워드를 너무 복잡하게 섞지 말고 핵심 위주로 배치
     KEYWORDS = ["삼성생명", "한화생명", "교보생명", "보험사"]
+    
+    # 수집 시작
     news_list = crawl_naver_news_robust(KEYWORDS, pages=3)
+    
+    # 리포트 생성
     final_msg = format_news_report(news_list)
     
+    # 출력 및 전송
     print(final_msg)
     send_telegram(final_msg)

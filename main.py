@@ -120,6 +120,7 @@ def send_telegram_msg(message):
 
 if __name__ == "__main__":
     KEYWORDS = ["한화생명", "삼성생명", "교보생명", "생보사", "보험사"]
+    EXCLUDES = ["보험금"]
     #EXCLUDES = ["배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원"]
     
     news_list = crawl_naver_news_robust(KEYWORDS, exclude_words=EXCLUDES, pages=5)

@@ -4,7 +4,7 @@ import time
 import os
 from datetime import datetime
 
-# --- 1. 크롤링 함수 (제공해주신 코드 그대로 유지) ---
+# --- 1. 크롤링 함수 (사용자께서 제공하신 코드 그대로 유지) ---
 def crawl_naver_news_robust(base_keywords, include_words=None, exclude_words=None, pages=1):
     if isinstance(base_keywords, str): base_keywords = [base_keywords]
     if isinstance(include_words, str): include_words = [include_words]
@@ -56,18 +56,29 @@ def crawl_naver_news_robust(base_keywords, include_words=None, exclude_words=Non
                 text = link.get_text().strip()
                 href = link.get('href')
 
-                # 필터: 제목 길이 10자 이상 200자 이하 (요청사항 반영)
-                if 10 <= len(text) <= 200 and href and href.startswith("http"):
-                    if exclude_words and any(bad_word in text for bad_word in exclude_words):
-                        continue
+                # 사용자 필터: 10자 초과 100자 미만
+                if 10 < len(text) < 100 and href and href.startswith("http"):
+                    is_excluded = False
+                    if exclude_words:
+                        for bad_word in exclude_words:
+                            if bad_word in text:
+                                is_excluded = True
+                                break
+                    if is_excluded: continue
 
-                    if not any(k in text for k in base_keywords):
-                        continue
+                    matched_keywords = []
+                    for k in base_keywords:
+                        if k in text:
+                            matched_keywords.append(k)
 
+                    if not matched_keywords: continue
                     if any(r['url'] == href for r in results): continue
                     if text in ["네이버뉴스", "관련뉴스"]: continue
 
-                    results.append({'title': text, 'url': href})
+                    results.append({
+                        'title': text,
+                        'url': href
+                    })
                     found_in_page += 1
                     if found_in_page >= 15: break
 
@@ -80,14 +91,14 @@ def crawl_naver_news_robust(base_keywords, include_words=None, exclude_words=Non
 
     return results
 
-# --- 2. 분류 및 텔레그램 메시지 형식화 (추가된 부분) ---
-def format_and_classify(news_data):
-    sector_invest = []  # <투자손익/금융시장>
+# --- 2. 분류 및 출력 형식 정리 (요구사항 반영) ---
+def format_news_report(news_data):
+    sector_invest = [] # <투자손익/금융시장>
     sector_industry = [] # <생보3사/보험업계>
 
     for item in news_data:
         title = item['title']
-        # '손익' 또는 '자산' 포함 여부로 분류
+        # '손익' 또는 '자산'이 포함되면 투자 섹터로 분류
         if '손익' in title or '자산' in title:
             if len(sector_invest) < 5:
                 sector_invest.append(item)
@@ -95,55 +106,58 @@ def format_and_classify(news_data):
             if len(sector_industry) < 5:
                 sector_industry.append(item)
         
+        # 둘 다 5개씩 찼으면 종료
         if len(sector_invest) >= 5 and len(sector_industry) >= 5:
             break
 
-    today = datetime.now().strftime("%Y년 %m월 %d일")
+    today = datetime.now().strftime("%Y-%m-%d")
     
-    # 메시지 생성
-    msg = f"■News feed: {today}\n"
+    # [출력 형식 엄격 준수]
+    report = f"■News feed: {today}\n"
     
-    msg += "<생보3사/보험업계>\n\n"
-    if not sector_industry: msg += "(해당 기사 없음)\n\n"
+    report += "<생보3사/보험업계>\n\n"
     for item in sector_industry:
-        msg += f"{item['title']}\n{item['url']}\n\n"
+        report += f"{item['title']}\n{item['url']}\n\n"
         
-    msg += "<투자손익/금융시장>\n\n"
-    if not sector_invest: msg += "(해당 기사 없음)\n\n"
+    report += "<투자손익/금융시장>\n\n"
     for item in sector_invest:
-        msg += f"{item['title']}\n{item['url']}\n\n"
+        report += f"{item['title']}\n{item['url']}\n\n"
         
-    return msg
+    return report
 
-# --- 3. 텔레그램 전송 함수 (추가된 부분) ---
-def send_telegram(message):
+# --- 3. 텔레그램 전송 함수 ---
+def send_telegram_msg(message):
     token = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     if not token or not chat_id:
-        print("❌ 텔레그램 환경변수 설정 확인 필요")
+        print("❌ 환경변수가 설정되지 않았습니다.")
         return
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    # 메시지가 너무 길면 잘릴 수 있으므로 주의 (현재 설정상 안전)
     payload = {'chat_id': chat_id, 'text': message}
     
     try:
         res = requests.post(url, data=payload)
-        if res.status_code == 200: print("✅ 텔레그램 전송 완료")
-        else: print(f"❌ 전송 실패: {res.text}")
+        if res.status_code == 200:
+            print("✅ 텔레그램 메시지 전송 성공!")
+        else:
+            print(f"❌ 전송 실패: {res.text}")
     except Exception as e:
-        print(f"❌ 전송 에러: {e}")
+        print(f"❌ 에러: {e}")
 
-# --- 4. 실행부 ---
+# --- 4. 최종 실행 ---
 if __name__ == "__main__":
     KEYWORDS = ["한화생명", "삼성생명", "교보생명", "생보사", "보험사"]
     EXCLUDES = ["배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원"]
     
-    # 크롤링 실행
-    news_data = crawl_naver_news_robust(KEYWORDS, exclude_words=EXCLUDES, pages=5)
+    # 1. 크롤링 (사용자 코드 실행)
+    news_list = crawl_naver_news_robust(KEYWORDS, exclude_words=EXCLUDES, pages=5)
     
-    # 분류 및 메시지 생성
-    final_report = format_and_classify(news_data)
+    # 2. 형식 정리
+    report_text = format_news_report(news_list)
     
-    # 결과 출력 및 텔레그램 전송
-    print(final_report)
-    send_telegram(final_report)
+    # 3. 출력 및 전송
+    print("\n--- 생성된 리포트 ---")
+    print(report_text)
+    send_telegram_msg(report_text)

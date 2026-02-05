@@ -4,6 +4,13 @@ import time
 import os
 from datetime import datetime
 import random
+
+import requests
+from bs4 import BeautifulSoup
+import time
+import os
+from datetime import datetime
+import random
 from urllib.parse import quote  # 한글 인코딩을 위해 추가
 
 def crawl_naver_news_robust(keywords, pages=2):
@@ -83,4 +90,48 @@ def crawl_naver_news_robust(keywords, pages=2):
 
     return results
 
-# ... (나머지 함수는 동일)
+# ... (이후 format_news_report 및 send_telegram 함수는 기존과 동일하게 유지)
+
+def format_news_report(news_data):
+    sector_invest = []   # <투자손익/금융시장>
+    sector_industry = [] # <생보3사/보험업계>
+
+    for item in news_data:
+        title = item['title']
+        if any(keyword in title for keyword in ['손익', '자산', '금융', '시장', '투자']):
+            if len(sector_invest) < 5: sector_invest.append(item)
+        else:
+            if len(sector_industry) < 5: sector_industry.append(item)
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    report = f"■ News feed: {today}\n"
+    
+    report += "\n<생보3사/보험업계>\n"
+    if not sector_industry: report += "(기사 없음)\n"
+    for item in sector_industry:
+        report += f"• {item['title']}\n{item['url']}\n\n"
+        
+    report += "<투자손익/금융시장>\n"
+    if not sector_invest: report += "(기사 없음)\n"
+    for item in sector_invest:
+        report += f"• {item['title']}\n{item['url']}\n\n"
+        
+    return report
+
+def send_telegram(message):
+    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+    if not token or not chat_id: 
+        print("Telegram 설정이 없습니다. 메시지를 전송하지 않습니다.")
+        return
+    try:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
+                      data={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True})
+    except: pass
+
+if __name__ == "__main__":
+    KEYWORDS = ["삼성생명", "한화생명", "교보생명"]
+    news_list = crawl_naver_news_robust(KEYWORDS, pages=2)
+    final_msg = format_news_report(news_list)
+    print(final_msg)
+    send_telegram(final_msg)

@@ -4,17 +4,18 @@ import html
 from datetime import datetime
 
 # ==========================================
-# 🔑 API 키 설정 (직접 입력하거나 환경변수 사용)
+# 🔑 API 키 설정
+# ※ 중요: 기존 키가 노출되었으므로 네이버 개발자 센터에서 반드시 재발급 받으세요!
 # ==========================================
-NAVER_CLIENT_ID = "2cC4xeZPfKKs3BVY_onT"     # 예: "AbCdEfGhIjKlMnOpQrSt"
-NAVER_CLIENT_SECRET = "Z6pPs8GyhV" # 예: "aBcDeFgHiJ"
+NAVER_CLIENT_ID = "2cC4xeZPfKKs3BVY_onT"
+NAVER_CLIENT_SECRET = "21DmUYrAdX"
 
-# 보안을 위해 환경변수가 설정되어 있다면 그것을 우선 사용
+# 환경변수가 있다면 우선 사용
 if os.environ.get("NAVER_CLIENT_ID"):
-    NAVER_CLIENT_ID = os.environ.get("2cC4xeZPfKKs3BVY_onT")
-    NAVER_CLIENT_SECRET = os.environ.get("Z6pPs8GyhV")
+    NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID")
+    NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET")
 
-def crawl_naver_news_api(keywords, display=30):
+def crawl_naver_news_api(keywords, excludes=[], display=60):
     url = "https://openapi.naver.com/v1/search/news.json"
     
     headers = {
@@ -22,18 +23,17 @@ def crawl_naver_news_api(keywords, display=30):
         "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
     }
     
-    # 여러 키워드 중 하나라도 포함되면 검색되도록 OR 연산자(|) 사용일 수도 있으나,
-    # 정확도를 위해 키워드를 합쳐서 검색하거나 루프를 돌릴 수 있습니다.
-    # 여기서는 검색 결과의 다양성을 위해 OR 연산자처럼 동작하도록 쿼리를 구성합니다.
-    # 예: "삼성생명" OR "한화생명" (검색어 사이 | 는 OR 연산)
+    # API 요청용 쿼리 (OR 연산)
     query = " | ".join(keywords)
-    print(f"🔎 API 검색 시작: {query}")
+    print(f"🔎 API 검색 요청: {query}")
+    if excludes:
+        print(f"🚫 제외 단어 목록: {excludes}")
 
     params = {
         "query": query,
-        "display": display,  # 가져올 뉴스 개수 (최대 100)
+        "display": display,  # 필터링으로 걸러질 것을 대비해 넉넉하게 요청 (60개)
         "start": 1,
-        "sort": "date"       # date: 최신순, sim: 정확도순
+        "sort": "date"       # date: 최신순
     }
 
     results = []
@@ -41,12 +41,8 @@ def crawl_naver_news_api(keywords, display=30):
     try:
         response = requests.get(url, headers=headers, params=params)
         
-        # API 키 오류 등 체크
-        if response.status_code == 401:
-            print("❌ 인증 실패: Client ID와 Secret을 확인해주세요.")
-            return []
         if response.status_code != 200:
-            print(f"❌ 에러 발생 (코드: {response.status_code})")
+            print(f"❌ API 호출 에러 (코드: {response.status_code})")
             return []
 
         data = response.json()
@@ -57,16 +53,29 @@ def crawl_naver_news_api(keywords, display=30):
             return []
 
         for item in items:
-            # API 결과는 HTML 태그(<b> 등)와 특수문자(&quot;)가 섞여 있어 제거 필요
             raw_title = item['title']
+            # HTML 태그 제거 및 특수문자 복원
             clean_title = html.unescape(raw_title).replace("<b>", "").replace("</b>", "")
             link = item['originallink'] if item['originallink'] else item['link']
 
-            # 필터링: 제목 길이 5~100자
+            # -----------------------------------------------------------
+            # 🔍 [강화된 필터링 로직]
+            # -----------------------------------------------------------
+            
+            # 1. 제외 키워드(excludes)가 제목에 포함되면 즉시 건너뛰기
+            if any(ex_word in clean_title for ex_word in excludes):
+                continue
+
+            # 2. 검색 키워드(keywords)가 제목에 '실제로' 포함되어 있는지 확인
+            #    (API는 본문 내용으로도 검색하므로, 제목에 키워드가 없는 경우가 있음)
+            if not any(key_word in clean_title for key_word in keywords):
+                continue
+            
+            # 3. 제목 길이 필터링 (너무 짧거나 긴 것 제외)
             if 5 < len(clean_title) < 100:
                 results.append({'title': clean_title, 'url': link})
 
-        print(f"✅ {len(results)}건의 기사 정보를 가져왔습니다.")
+        print(f"✅ 필터링 후 남은 기사: {len(results)}건")
 
     except Exception as e:
         print(f"⚠️ 시스템 에러: {e}")
@@ -77,7 +86,6 @@ def format_news_report(news_data):
     sector_invest = []   # <투자손익/금융시장>
     sector_industry = [] # <생보3사/보험업계>
 
-    # 중복 제거를 위한 세트 (API는 간혹 중복을 줄 수 있음)
     seen_urls = set()
 
     for item in news_data:
@@ -86,8 +94,9 @@ def format_news_report(news_data):
 
         title = item['title']
         
-        # 키워드 분류 로직
-        invest_keywords = ['손익', '자산', '금융', '시장', '투자']
+        # 섹터 분류 키워드
+        invest_keywords = ['손익', '자산', '금융', '시장', '투자', '금리', '실적', '주가', '배당']
+        
         if any(k in title for k in invest_keywords):
             if len(sector_invest) < 5: sector_invest.append(item)
         else:
@@ -113,7 +122,8 @@ def send_telegram(message):
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
     if not token or not chat_id:
-        print("🔔 텔레그램 토큰이 없어 메시지를 보내지 않습니다. (출력만 함)")
+        print("🔔 텔레그램 토큰 없음 (출력만 함)")
+        print(message)
         return
 
     try:
@@ -129,16 +139,22 @@ def send_telegram(message):
         print(f"텔레그램 전송 실패: {e}")
 
 if __name__ == "__main__":
-    # 검색 키워드
-    KEYWORDS = ["삼성생명", "한화생명", "교보생명","생보사","보험사"]
+    # 1. 검색하고 싶은 핵심 키워드
+    KEYWORDS = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
     
+    # 2. 제목에 포함되면 무조건 제외할 키워드 (광고, 부고, 인사 등)
+    EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원",]
+
     # API 실행
-    if NAVER_CLIENT_ID == "여기에_Client_ID_입력":
-        print("⚠️ 주의: 소스코드 상단의 NAVER_CLIENT_ID를 먼저 설정해주세요!")
+    if "Client_ID" in NAVER_CLIENT_ID:
+        print("⚠️ 설정 오류: 소스코드 상단의 API 키를 먼저 입력해주세요.")
     else:
-        news_list = crawl_naver_news_api(KEYWORDS, display=40)
+        # 필터링 때문에 버려지는 기사가 많을 수 있으므로 display를 60으로 늘림
+        news_list = crawl_naver_news_api(KEYWORDS, excludes=EXCLUDES, display=70)
+        
         final_msg = format_news_report(news_list)
         
+        # 콘솔 출력 확인용
         print("-" * 30)
         print(final_msg)
         print("-" * 30)

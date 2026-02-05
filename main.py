@@ -1,112 +1,94 @@
 import requests
-from bs4 import BeautifulSoup
-import time
 import os
+import html
 from datetime import datetime
-import random
-from urllib.parse import quote
 
-def crawl_naver_news_pc(keywords, pages=2):
-    session = requests.Session()
+# ==========================================
+# 🔑 API 키 설정 (직접 입력하거나 환경변수 사용)
+# ==========================================
+NAVER_CLIENT_ID = "여기에_Client_ID_입력"     # 예: "AbCdEfGhIjKlMnOpQrSt"
+NAVER_CLIENT_SECRET = "여기에_Client_Secret_입력" # 예: "aBcDeFgHiJ"
+
+# 보안을 위해 환경변수가 설정되어 있다면 그것을 우선 사용
+if os.environ.get("NAVER_CLIENT_ID"):
+    NAVER_CLIENT_ID = os.environ.get("2cC4xeZPfKKs3BVY_onT")
+    NAVER_CLIENT_SECRET = os.environ.get("Z6pPs8GyhV")
+
+def crawl_naver_news_api(keywords, display=30):
+    url = "https://openapi.naver.com/v1/search/news.json"
     
-    # 1. 일반적인 윈도우 PC 크롬 브라우저로 위장
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    }
+    
+    # 여러 키워드 중 하나라도 포함되면 검색되도록 OR 연산자(|) 사용일 수도 있으나,
+    # 정확도를 위해 키워드를 합쳐서 검색하거나 루프를 돌릴 수 있습니다.
+    # 여기서는 검색 결과의 다양성을 위해 OR 연산자처럼 동작하도록 쿼리를 구성합니다.
+    # 예: "삼성생명" OR "한화생명" (검색어 사이 | 는 OR 연산)
+    query = " | ".join(keywords)
+    print(f"🔎 API 검색 시작: {query}")
+
+    params = {
+        "query": query,
+        "display": display,  # 가져올 뉴스 개수 (최대 100)
+        "start": 1,
+        "sort": "date"       # date: 최신순, sim: 정확도순
     }
 
-    # 2. 메인 페이지 방문하여 쿠키 획득 (PC 버전)
-    try:
-        session.get("https://www.naver.com", headers=headers, timeout=10)
-        time.sleep(random.uniform(1.0, 2.0)) # 사람이 접속한 척 뜸 들이기
-    except:
-        pass
-
     results = []
-    # 검색어를 URL 인코딩 (필수)
-    query_str = " ".join(keywords)
-    
-    print(f"🔎 네이버 뉴스(PC) 검색 시작: {query_str}")
 
-    # PC 버전 뉴스 검색 URL
-    base_url = "https://search.naver.com/search.naver"
-
-    for page in range(pages):
-        start = (page * 10) + 1  # PC는 페이지당 10개씩 보여줍니다.
+    try:
+        response = requests.get(url, headers=headers, params=params)
         
-        params = {
-            'where': 'news',
-            'query': query_str,
-            'sort': '1',       # 최신순
-            'nso': 'so:dd,p:2d', # 최근 2일
-            'start': start
-        }
+        # API 키 오류 등 체크
+        if response.status_code == 401:
+            print("❌ 인증 실패: Client ID와 Secret을 확인해주세요.")
+            return []
+        if response.status_code != 200:
+            print(f"❌ 에러 발생 (코드: {response.status_code})")
+            return []
 
-        try:
-            # 봇 탐지 회피를 위한 랜덤 지연
-            time.sleep(random.uniform(2.0, 4.0))
-            
-            response = session.get(base_url, headers=headers, params=params, timeout=15)
-            
-            if response.status_code != 200:
-                print(f"❌ 접속 실패 (코드: {response.status_code})")
-                continue
+        data = response.json()
+        items = data.get('items', [])
 
-            # 차단 여부 확인
-            if "captcha" in response.url or "로봇" in response.text:
-                print("🚨 네이버가 현재 IP를 차단했습니다. (VPN을 끄거나 다른 네트워크에서 실행하세요)")
-                break
+        if not items:
+            print("ℹ️ 검색 결과가 없습니다.")
+            return []
 
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # PC 버전 뉴스 리스트 선택자
-            # 구조: ul.list_news > li.bx > div.news_wrap
-            news_items = soup.select("div.news_wrap")
+        for item in items:
+            # API 결과는 HTML 태그(<b> 등)와 특수문자(&quot;)가 섞여 있어 제거 필요
+            raw_title = item['title']
+            clean_title = html.unescape(raw_title).replace("<b>", "").replace("</b>", "")
+            link = item['originallink'] if item['originallink'] else item['link']
 
-            if not news_items:
-                # 검색 결과가 없을 때
-                print(f"ℹ️ {page+1}페이지: 기사 없음")
-                break
+            # 필터링: 제목 길이 5~100자
+            if 5 < len(clean_title) < 100:
+                results.append({'title': clean_title, 'url': link})
 
-            found_in_page = 0
-            for item in news_items:
-                # 제목 태그 (PC 버전: a.news_tit)
-                title_tag = item.select_one("a.news_tit")
-                if not title_tag: continue
-                
-                text = title_tag.get_text().strip()
-                href = title_tag.get('href')
+        print(f"✅ {len(results)}건의 기사 정보를 가져왔습니다.")
 
-                # 필터링
-                if 5 < len(text) < 120 and href and href.startswith("http"):
-                    # 중복 제거
-                    if any(r['url'] == href for r in results): continue
-                    
-                    results.append({'title': text, 'url': href})
-                    found_in_page += 1
-
-            print(f"📄 {page+1}페이지: {found_in_page}건 수집")
-            
-            if found_in_page == 0:
-                break
-
-        except Exception as e:
-            print(f"⚠️ 에러 발생: {e}")
-            break
+    except Exception as e:
+        print(f"⚠️ 시스템 에러: {e}")
 
     return results
 
-# 리포트 포맷팅 함수 (기존과 동일하지만, 안전을 위해 다시 포함)
 def format_news_report(news_data):
-    sector_invest = []   
-    sector_industry = [] 
+    sector_invest = []   # <투자손익/금융시장>
+    sector_industry = [] # <생보3사/보험업계>
+
+    # 중복 제거를 위한 세트 (API는 간혹 중복을 줄 수 있음)
+    seen_urls = set()
 
     for item in news_data:
+        if item['url'] in seen_urls: continue
+        seen_urls.add(item['url'])
+
         title = item['title']
-        if any(keyword in title for keyword in ['손익', '자산', '금융', '시장', '투자', '금리']):
+        
+        # 키워드 분류 로직
+        invest_keywords = ['손익', '자산', '금융', '시장', '투자', '금리', '실적', '주가']
+        if any(k in title for k in invest_keywords):
             if len(sector_invest) < 5: sector_invest.append(item)
         else:
             if len(sector_industry) < 5: sector_industry.append(item)
@@ -129,18 +111,36 @@ def format_news_report(news_data):
 def send_telegram(message):
     token = os.environ.get('TELEGRAM_BOT_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
-    if not token or not chat_id: return
+    
+    if not token or not chat_id:
+        print("🔔 텔레그램 토큰이 없어 메시지를 보내지 않습니다. (출력만 함)")
+        return
+
     try:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      data={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True})
-    except: pass
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = {
+            'chat_id': chat_id, 
+            'text': message, 
+            'disable_web_page_preview': True
+        }
+        requests.post(url, data=data)
+        print("🚀 텔레그램 전송 완료")
+    except Exception as e:
+        print(f"텔레그램 전송 실패: {e}")
 
 if __name__ == "__main__":
+    # 검색 키워드
     KEYWORDS = ["삼성생명", "한화생명", "교보생명"]
     
-    # 함수 이름 변경됨 (PC 버전)
-    news_list = crawl_naver_news_pc(KEYWORDS, pages=2)
-    
-    final_msg = format_news_report(news_list)
-    print(final_msg)
-    send_telegram(final_msg)
+    # API 실행
+    if NAVER_CLIENT_ID == "여기에_Client_ID_입력":
+        print("⚠️ 주의: 소스코드 상단의 NAVER_CLIENT_ID를 먼저 설정해주세요!")
+    else:
+        news_list = crawl_naver_news_api(KEYWORDS, display=40)
+        final_msg = format_news_report(news_list)
+        
+        print("-" * 30)
+        print(final_msg)
+        print("-" * 30)
+        
+        send_telegram(final_msg)

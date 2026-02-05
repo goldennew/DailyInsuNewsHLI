@@ -106,7 +106,7 @@ def remove_duplicates_globally(all_news):
             matcher = difflib.SequenceMatcher(None, item['desc'], exist_desc)
             match = matcher.find_longest_match(0, len(item['desc']), 0, len(exist_desc))
             
-            if match.size >= 30: 
+            if match.size >= 15: 
                 is_content_dup = True
                 break
         
@@ -177,7 +177,8 @@ if __name__ == "__main__":
     KEYWORDS_INSURANCE = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
     KEYWORDS_MARKET = ["마감시황", "마감 시황"]
     
-    EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "인사", "동정"]
+    EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "인사", "동정","원리금","보장형"]
+    EXCLUDES2 = []
 
     if "API_ID" in NAVER_CLIENT_ID:
         print("⚠️ 설정 오류: 소스코드 상단의 API 키를 먼저 입력해주세요.")
@@ -190,7 +191,7 @@ if __name__ == "__main__":
         news_insurance = crawl_naver_news_api(KEYWORDS_INSURANCE, excludes=EXCLUDES, display_limit=60)
         
         # B. 시황 뉴스: 10개만 수집 후 -> ★최신 3개만 자르기★
-        news_market = crawl_naver_news_api(KEYWORDS_MARKET, excludes=EXCLUDES, display_limit=10)
+        news_market = crawl_naver_news_api(KEYWORDS_MARKET, excludes=EXCLUDES2, display_limit=10)
         news_market = news_market[:3] # [핵심] 여기서 딱 3개로 제한합니다.
         print(f"   ✂️ 시황 뉴스는 최신 3개만 남기고 잘랐습니다.")
 

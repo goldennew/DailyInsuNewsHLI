@@ -112,7 +112,7 @@ def format_news_report(news_data):
         title = item['title']
         
         # 키워드 분류
-        invest_keywords = ['손익', '실적', '투자', 'IR']
+        invest_keywords = ['손익', '실적', '투자', 'IR', '뉴욕증시', '코스피']
         
         if any(k in title for k in invest_keywords):
             # [요청 사항] 개수 제한(len < 5) 조건 제거
@@ -159,7 +159,7 @@ def send_telegram(message):
         print(f"텔레그램 전송 실패: {e}")
 
 if __name__ == "__main__":
-    KEYWORDS = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
+    KEYWORDS = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사","마감시황", "마감 시황"]
     EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시","손해사정","채널 경쟁","비급여"]
 
     # API 실행

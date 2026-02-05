@@ -3,7 +3,7 @@ import os
 import html
 import difflib
 import time
-from datetime import datetime
+from datetime import datetime, timedelta # 시간 계산을 위해 timedelta 추가
 
 # ==========================================
 # 🔑 API 키 설정
@@ -57,6 +57,28 @@ def crawl_naver_news_api(target_keywords, excludes=[], display_limit=50, categor
             if not items: break
 
             for item in items:
+                # -------------------------------------------------------
+                # [추가됨] 날짜 파싱 및 12시간 제한 로직
+                # -------------------------------------------------------
+                pub_date_str = item['pubDate']
+                # 네이버 날짜 포맷: "Thu, 05 Feb 2026 12:00:00 +0900"
+                try:
+                    pub_date = datetime.strptime(pub_date_str, "%a, %d %b %Y %H:%M:%S %z")
+                    
+                    # 시황(market) 뉴스인 경우에만 12시간 체크
+                    if category_tag == 'market':
+                        # 현재 시간 (TimeZone 정보 포함하여 비교)
+                        now = datetime.now(pub_date.tzinfo)
+                        time_diff = now - pub_date
+                        
+                        # 12시간(hours=12) 이상 지났으면 건너뛰기
+                        if time_diff > timedelta(hours=12):
+                            continue
+                except Exception as e:
+                    # 날짜 파싱 에러 시 그냥 통과시킴 (안전장치)
+                    pass
+                # -------------------------------------------------------
+
                 raw_title = item['title']
                 clean_title = html.unescape(raw_title).replace("<b>", "").replace("</b>", "")
                 
@@ -73,7 +95,7 @@ def crawl_naver_news_api(target_keywords, excludes=[], display_limit=50, categor
                 if not any(key_word in clean_title for key_word in target_keywords):
                     continue
                 
-                # [수정] 결과에 카테고리 태그 추가
+                # 결과에 카테고리 태그 추가
                 results.append({
                     'title': clean_title, 
                     'url': link, 
@@ -93,14 +115,14 @@ def crawl_naver_news_api(target_keywords, excludes=[], display_limit=50, categor
 def remove_duplicates_globally(all_news):
     """
     category별로 다른 글자 수 제한을 적용하여 중복 제거
-    - Market: 30자 이상 겹치면 중복
-    - Insurance: 15자 이상 겹치면 중복
+    - Market: 60자 이상 겹치면 중복
+    - Insurance: 12자 이상 겹치면 중복
     """
     unique_news = []
     seen_urls = set()
     seen_descriptions = []
 
-    print("🧹 전체 중복 제거 작업 중... (Market: 30자 / Insurance: 15자)")
+    print("🧹 전체 중복 제거 작업 중... (Market: 60자 / Insurance: 12자)")
 
     for item in all_news:
         # 1. URL 중복 체크
@@ -110,11 +132,11 @@ def remove_duplicates_globally(all_news):
         # 2. 본문 내용 유사도 체크
         category = item.get('category', 'general')
         
-        # [핵심 로직 변경] 카테고리에 따라 기준 글자 수(threshold) 다르게 설정
+        # 카테고리에 따라 기준 글자 수(threshold) 다르게 설정
         if category == 'market':
-            threshold = 60  # 시황은 상투적인 문구가 많으므로 30자까지 허용
+            threshold = 60  
         else:
-            threshold = 12  # 보험은 15자만 겹쳐도 중복으로 처리
+            threshold = 12 
             
         is_content_dup = False
         for exist_desc in seen_descriptions:
@@ -201,7 +223,6 @@ if __name__ == "__main__":
     # ------------------------------------------------
     KEYWORDS_INSURANCE = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
     
-    # [Tip] 시황 뉴스가 잘 안 잡히면 아래 키워드를 "증시", "코스피" 등으로 조금 더 넓히는 것도 좋습니다.
     KEYWORDS_MARKET = ["마감시황", "마감 시황", "뉴욕증시","코스피","FOMC","금통위","한은"] 
     
     EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정",
@@ -223,7 +244,8 @@ if __name__ == "__main__":
             category_tag='insurance'
         )
         
-        # B. 시황 뉴스 (태그: market) -> 최신 3개만 자르기
+        # B. 시황 뉴스 (태그: market) -> 12시간 이내 컷 & 최신 3개만 자르기
+        # (12시간 지난 기사는 crawl_naver_news_api 내부에서 이미 걸러집니다)
         news_market = crawl_naver_news_api(
             KEYWORDS_MARKET, 
             excludes=EXCLUDES2, 

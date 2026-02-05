@@ -112,7 +112,7 @@ def format_news_report(news_data):
         title = item['title']
         
         # 키워드 분류
-        invest_keywords = ['손익', '실적', '투자']
+        invest_keywords = ['손익', '실적', '투자', 'IR']
         
         if any(k in title for k in invest_keywords):
             # [요청 사항] 개수 제한(len < 5) 조건 제거

@@ -143,15 +143,25 @@ def format_news_report(news_data):
         title = item['title']
         
         # 투자/시장 섹터로 보낼 키워드
-        invest_keywords = ['손익', '실적', 'IR', '뉴욕증시', '코스피', '마감', '시황', '주가', '증시']
+        invest_keywords = ['손익', '실적', '투자', 'IR', '뉴욕증시', '코스피', '마감', '시황', '주가', '증시']
         
         if any(k in title for k in invest_keywords):
             sector_invest.append(item)
         else:
             sector_industry.append(item)
     
-    today = datetime.now().strftime("%Y-%m-%d")
-    report = f"■ News feed: {today}\n"
+    # ---------------------------------------------------------
+    # [날짜 및 요일 포맷 변경 로직]
+    # ---------------------------------------------------------
+    now = datetime.now()
+    days_kr = ["월", "화", "수", "목", "금", "토", "일"]
+    day_of_week = days_kr[now.weekday()] # 0=월, 6=일
+    
+    # 예: 2026.02.05(목)
+    today_str = f"{now.strftime('%Y.%m.%d')}({day_of_week})"
+    
+    report = f"■ News feed: {today_str}\n"
+    # ---------------------------------------------------------
     
     report += "\n<생보3사/보험업계>\n"
     if not sector_industry: report += "(기사 없음)\n"

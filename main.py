@@ -106,5 +106,107 @@ def remove_duplicates_globally(all_news):
             matcher = difflib.SequenceMatcher(None, item['desc'], exist_desc)
             match = matcher.find_longest_match(0, len(item['desc']), 0, len(exist_desc))
             
-            if match.size >= 10: 
+            if match.size >= 30: 
                 is_content_dup = True
+                break
+        
+        if is_content_dup:
+            continue
+
+        seen_urls.add(item['url'])
+        seen_descriptions.append(item['desc'])
+        unique_news.append(item)
+
+    print(f"✅ 최종 리포트 포함 기사: {len(unique_news)}건")
+    return unique_news
+
+def format_news_report(news_data):
+    sector_invest = []   # <투자손익/금융시장>
+    sector_industry = [] # <생보3사/보험업계>
+
+    for item in news_data:
+        title = item['title']
+        
+        # 투자/시장 섹터로 보낼 키워드
+        invest_keywords = ['손익', '실적', '투자', 'IR', '뉴욕증시', '코스피', '마감', '시황', '주가', '증시']
+        
+        if any(k in title for k in invest_keywords):
+            sector_invest.append(item)
+        else:
+            sector_industry.append(item)
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    report = f"■ News feed: {today}\n"
+    
+    report += "\n<생보3사/보험업계>\n"
+    if not sector_industry: report += "(기사 없음)\n"
+    for item in sector_industry:
+        report += f"• {item['title']}\n{item['url']}\n\n"
+        
+    report += "<투자손익/금융시장>\n"
+    if not sector_invest: report += "(기사 없음)\n"
+    for item in sector_invest:
+        report += f"• {item['title']}\n{item['url']}\n\n"
+        
+    return report
+
+def send_telegram(message):
+    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+    
+    if not token or not chat_id:
+        print("🔔 텔레그램 설정 없음 (콘솔 출력)")
+        return
+
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = {
+            'chat_id': chat_id, 
+            'text': message, 
+            'disable_web_page_preview': True
+        }
+        requests.post(url, data=data)
+        print("🚀 텔레그램 전송 완료")
+    except Exception as e:
+        print(f"텔레그램 전송 실패: {e}")
+
+if __name__ == "__main__":
+    # ------------------------------------------------
+    # 1. 키워드 그룹 정의
+    # ------------------------------------------------
+    KEYWORDS_INSURANCE = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
+    KEYWORDS_MARKET = ["마감시황", "마감 시황"]
+    
+    EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "인사", "동정"]
+
+    if "API_ID" in NAVER_CLIENT_ID:
+        print("⚠️ 설정 오류: 소스코드 상단의 API 키를 먼저 입력해주세요.")
+    else:
+        # ------------------------------------------------
+        # 2. 그룹별 분리 수집 실행
+        # ------------------------------------------------
+        
+        # A. 보험 뉴스: 넉넉하게 60개 수집
+        news_insurance = crawl_naver_news_api(KEYWORDS_INSURANCE, excludes=EXCLUDES, display_limit=60)
+        
+        # B. 시황 뉴스: 10개만 수집 후 -> ★최신 3개만 자르기★
+        news_market = crawl_naver_news_api(KEYWORDS_MARKET, excludes=EXCLUDES, display_limit=10)
+        news_market = news_market[:3] # [핵심] 여기서 딱 3개로 제한합니다.
+        print(f"   ✂️ 시황 뉴스는 최신 3개만 남기고 잘랐습니다.")
+
+        # ------------------------------------------------
+        # 3. 결과 합치기 및 전체 중복 제거
+        # ------------------------------------------------
+        combined_list = news_insurance + news_market
+        final_list = remove_duplicates_globally(combined_list)
+        
+        # ------------------------------------------------
+        # 4. 리포트 작성 및 전송
+        # ------------------------------------------------
+        final_msg = format_news_report(final_list)
+        
+        print("-" * 30)
+        print(final_msg)
+        print("-" * 30)
+        
+        send_telegram(final_msg)

@@ -215,7 +215,7 @@ def remove_duplicates_globally(all_news):
 
             
 
-            if match.size >= 15: 
+            if match.size >= 20: 
 
                 is_content_dup = True
 
@@ -357,7 +357,7 @@ if __name__ == "__main__":
 
     
 
-    EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "원리금","보장형","IRP"]
+    EXCLUDES = ["선봬", "부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "원리금","보장형","IRP"]
 
     EXCLUDES2 = []
 

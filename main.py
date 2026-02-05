@@ -6,8 +6,8 @@ from datetime import datetime
 # ==========================================
 # 🔑 API 키 설정 (직접 입력하거나 환경변수 사용)
 # ==========================================
-NAVER_CLIENT_ID = "여기에_Client_ID_입력"     # 예: "AbCdEfGhIjKlMnOpQrSt"
-NAVER_CLIENT_SECRET = "여기에_Client_Secret_입력" # 예: "aBcDeFgHiJ"
+NAVER_CLIENT_ID = "2cC4xeZPfKKs3BVY_onT"     # 예: "AbCdEfGhIjKlMnOpQrSt"
+NAVER_CLIENT_SECRET = "Z6pPs8GyhV" # 예: "aBcDeFgHiJ"
 
 # 보안을 위해 환경변수가 설정되어 있다면 그것을 우선 사용
 if os.environ.get("NAVER_CLIENT_ID"):

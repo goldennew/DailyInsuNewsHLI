@@ -87,7 +87,7 @@ def format_news_report(news_data):
         title = item['title']
         
         # 키워드 분류 로직
-        invest_keywords = ['손익', '자산', '금융', '시장', '투자', '금리', '실적', '주가']
+        invest_keywords = ['손익', '자산', '금융', '시장', '투자']
         if any(k in title for k in invest_keywords):
             if len(sector_invest) < 5: sector_invest.append(item)
         else:
@@ -130,7 +130,7 @@ def send_telegram(message):
 
 if __name__ == "__main__":
     # 검색 키워드
-    KEYWORDS = ["삼성생명", "한화생명", "교보생명"]
+    KEYWORDS = ["삼성생명", "한화생명", "교보생명","생보사","보험사"]
     
     # API 실행
     if NAVER_CLIENT_ID == "여기에_Client_ID_입력":

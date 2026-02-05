@@ -112,7 +112,7 @@ def remove_duplicates_globally(all_news):
         
         # [핵심 로직 변경] 카테고리에 따라 기준 글자 수(threshold) 다르게 설정
         if category == 'market':
-            threshold = 40  # 시황은 상투적인 문구가 많으므로 30자까지 허용
+            threshold = 60  # 시황은 상투적인 문구가 많으므로 30자까지 허용
         else:
             threshold = 12  # 보험은 15자만 겹쳐도 중복으로 처리
             
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     KEYWORDS_INSURANCE = ["삼성생명", "한화생명", "교보생명", "생보사", "보험사"]
     
     # [Tip] 시황 뉴스가 잘 안 잡히면 아래 키워드를 "증시", "코스피" 등으로 조금 더 넓히는 것도 좋습니다.
-    KEYWORDS_MARKET = ["마감시황", "마감 시황", "뉴욕증시",] 
+    KEYWORDS_MARKET = ["마감시황", "마감 시황", "뉴욕증시","코스피"] 
     
     EXCLUDES = ["부고", "배타적", "상품", "간병", "사업비", "보험금", "연금보험", "민원", "출시", "손해사정", "채널 경쟁", "비급여", "원리금","보장형","IRP"]
     EXCLUDES2 = []

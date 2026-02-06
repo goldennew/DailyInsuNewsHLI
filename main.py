@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 # ==========================================
 # 🔑 API 키 설정
 # ==========================================
-NAVER_CLIENT_ID = "2cC4xeZPfKKs3BVY_onT"
-NAVER_CLIENT_SECRET = "21DmUYrAdX"
+NAVER_CLIENT_ID = "2cC4xeZPfKKs3BVY_onT" # (입력하신 키 유지)
+NAVER_CLIENT_SECRET = "21DmUYrAdX"       # (입력하신 키 유지)
 
 if os.environ.get("NAVER_CLIENT_ID"):
     NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID")
@@ -128,7 +128,7 @@ def remove_duplicates_globally(all_news):
     return unique_news
 
 # ==========================================
-# 🛠️ 수정된 부분 1: HTML 태그 적용
+# 🛠️ [핵심 1] 하이퍼링크 포맷팅 함수
 # ==========================================
 def format_news_report(news_data):
     sector_invest = []   
@@ -136,12 +136,11 @@ def format_news_report(news_data):
 
     for item in news_data:
         title = item['title']
-        # 텔레그램 HTML 태그 안에서 <, >, & 등이 꼬이지 않게 특수문자 처리
+        # 텔레그램 HTML 태그 깨짐 방지 (필수)
         safe_title = html.escape(title)
         
         invest_keywords = ['손익', '실적', '투자', 'IR', '뉴욕증시', '코스피', '마감', '시황', '주가', '증시']
         
-        # 데이터 구조에 안전한 제목 저장
         item['safe_title'] = safe_title
         
         if any(k in title for k in invest_keywords):
@@ -153,13 +152,12 @@ def format_news_report(news_data):
     days_kr = ["월", "화", "수", "목", "금", "토", "일"]
     today_str = f"{now.strftime('%Y.%m.%d')}({days_kr[now.weekday()]})"
     
-    # [bold] 태그 사용: <b>...</b>
+    # HTML 태그 적용 (<a href='URL'>제목</a>)
     report = f"<b>■ News feed: {today_str}</b>\n\n"
     
     report += "<b><생보3사/보험업계></b>\n"
     if not sector_industry: report += "(기사 없음)\n"
     for item in sector_industry:
-        # [하이퍼링크] 태그 사용: <a href='주소'>제목</a>
         report += f"• <a href='{item['url']}'>{item['safe_title']}</a>\n"
         
     report += "\n<b><투자손익/금융시장></b>\n"
@@ -170,7 +168,7 @@ def format_news_report(news_data):
     return report
 
 # ==========================================
-# 🛠️ 수정된 부분 2: HTML 파싱 모드 추가
+# 🛠️ [핵심 2] 텔레그램 전송 함수 (HTML 모드 & 에러체크)
 # ==========================================
 def send_telegram(message):
     token = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -180,18 +178,25 @@ def send_telegram(message):
         print("🔔 텔레그램 설정 없음")
         return
 
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
+    data = {
+        'chat_id': chat_id, 
+        'text': message, 
+        'parse_mode': 'HTML',       # 여기가 하이퍼링크를 인식하게 함
+        'disable_web_page_preview': True
+    }
+    
     try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        data = {
-            'chat_id': chat_id, 
-            'text': message, 
-            'parse_mode': 'HTML',      # 여기가 핵심입니다 (HTML 모드로 전송)
-            'disable_web_page_preview': True
-        }
-        requests.post(url, data=data)
-        print("🚀 텔레그램 전송 완료")
+        response = requests.post(url, data=data)
+        # 전송 성공 여부 확실하게 체크
+        if response.status_code == 200:
+            print("🚀 텔레그램 전송 완료")
+        else:
+            print(f"❌ 전송 실패 (Code: {response.status_code})")
+            print(f"👉 원인: {response.text}")
     except Exception as e:
-        print(f"텔레그램 전송 실패: {e}")
+        print(f"텔레그램 연결 실패: {e}")
 
 if __name__ == "__main__":
     should_skip, reason = is_skip_day()
@@ -215,7 +220,7 @@ if __name__ == "__main__":
         final_msg = format_news_report(final_list)
         
         print("-" * 30)
-        print(final_msg) # 콘솔에서는 태그가 그대로 보입니다 (정상)
+        print(final_msg)
         print("-" * 30)
         
         send_telegram(final_msg)

@@ -3,7 +3,7 @@ name: Daily Insurance News Feed
 on:
   schedule:
     # 한국 시간(KST) 오전 8시는 UTC 기준 전날 23:00입니다.
-    - cron: '0 22 * * *'
+    - cron: '32 22 * * *'
   workflow_dispatch:
 
 jobs:
